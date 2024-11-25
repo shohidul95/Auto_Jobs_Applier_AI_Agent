@@ -20,21 +20,30 @@ jobTypes:
 date:
   all time: false
   month: false
-  week: false
+  week: true
   24 hours: true
 
 positions:
   - Software engineer
+  - Software developer
+  - Frontend developer
+  - Backend developer
+  - Full stack developer
+  - Web developer
+  - DevOps engineer
+  - Data engineer
+  - Data scientist
+  - Cloud engineer
 
 locations:
-  - Germany
+  - UK
 
 apply_once_at_company: true
 
 distance: 100
 
 company_blacklist:
-  - wayfair
+  - Wipro
   - Crossover
 
 title_blacklist:
