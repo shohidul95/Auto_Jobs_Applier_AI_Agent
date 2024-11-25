@@ -17,7 +17,7 @@ job_types:
   temporary: true
   internship: false
   other: false
-  volunteer: true
+  volunteer: false
 
 date:
   all_time: false
@@ -29,7 +29,8 @@ positions:
   - Software engineer
 
 locations:
-  - Germany
+  - London
+  - Greater London
 
 apply_once_at_company: true
 
