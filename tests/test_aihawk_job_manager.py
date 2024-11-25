@@ -1,11 +1,13 @@
+import json
+import re
 from src.job import Job
 from unittest import mock
 from pathlib import Path
 import os
 import pytest
-from src.aihawk_job_manager import AIHawkJobManager
+from ai_hawk.job_manager import AIHawkJobManager
 from selenium.common.exceptions import NoSuchElementException
-from loguru import logger
+from src.logging import logger
 
 
 @pytest.fixture
@@ -41,7 +43,7 @@ def test_set_parameters(mocker, job_manager):
         },
         'remote': False,
         'distance': 50,
-        'date': {'all time': True}
+        'date': {'all_time': True}
     }
 
     job_manager.set_parameters(params)
@@ -69,21 +71,33 @@ def test_get_jobs_from_page_no_jobs(mocker, job_manager):
 
 def test_get_jobs_from_page_with_jobs(mocker, job_manager):
     """Test get_jobs_from_page when job elements are found."""
-    # Mock the no_jobs_element to behave correctly
-    mock_no_jobs_element = mocker.Mock()
-    mock_no_jobs_element.text = "No matching jobs found"
+    # Mock no_jobs_element to simulate the absence of "No matching jobs found" banner
+    no_jobs_element_mock = mocker.Mock()
+    no_jobs_element_mock.text = ""  # Empty text means "No matching jobs found" is not present
 
-    # Mocking the find_element to return the mock no_jobs_element
-    mocker.patch.object(job_manager.driver, 'find_element',
-                        return_value=mock_no_jobs_element)
+    # Mock the driver to simulate the page source
+    mocker.patch.object(job_manager.driver, 'page_source', return_value="")
 
-    # Mock the page_source
-    mocker.patch.object(job_manager.driver, 'page_source',
-                        return_value="some page content")
+    # Mock the outer find_element
+    container_mock = mocker.Mock()
 
-    # Ensure jobs are returned as empty list due to "No matching jobs found"
-    jobs = job_manager.get_jobs_from_page()
-    assert jobs == []  # No jobs expected due to "No matching jobs found"
+    # Mock the inner find_elements to return job list items
+    job_element_mock = mocker.Mock()
+    # Simulating two job items
+    job_elements_list = [job_element_mock, job_element_mock]
+
+    # Return the container mock, which itself returns the job elements list
+    container_mock.find_elements.return_value = job_elements_list
+    mocker.patch.object(job_manager.driver, 'find_element', side_effect=[
+        no_jobs_element_mock,
+        container_mock
+    ])
+
+    job_manager.get_jobs_from_page()
+
+    assert job_manager.driver.find_element.call_count == 2
+    assert container_mock.find_elements.call_count == 1
+    
 
 
 def test_apply_jobs_with_no_jobs(mocker, job_manager):
@@ -91,9 +105,6 @@ def test_apply_jobs_with_no_jobs(mocker, job_manager):
     # Mocking find_element to return a mock element that simulates no jobs
     mock_element = mocker.Mock()
     mock_element.text = "No matching jobs found"
-
-    # Mock the driver to simulate the page source
-    mocker.patch.object(job_manager.driver, 'page_source', return_value="")
 
     # Mock the driver to return the mock element when find_element is called
     mocker.patch.object(job_manager.driver, 'find_element',
@@ -109,32 +120,26 @@ def test_apply_jobs_with_no_jobs(mocker, job_manager):
 def test_apply_jobs_with_jobs(mocker, job_manager):
     """Test apply_jobs when jobs are present."""
 
-    # Mock no_jobs_element to simulate the absence of "No matching jobs found" banner
-    no_jobs_element = mocker.Mock()
-    no_jobs_element.text = ""  # Empty text means "No matching jobs found" is not present
-    mocker.patch.object(job_manager.driver, 'find_element',
-                        return_value=no_jobs_element)
-
     # Mock the page_source to simulate what the page looks like when jobs are present
     mocker.patch.object(job_manager.driver, 'page_source',
                         return_value="some job content")
 
-    # Mock the outer find_elements (scaffold-layout__list-container)
-    container_mock = mocker.Mock()
-
-    # Mock the inner find_elements to return job list items
+    # Simulating two job elements
     job_element_mock = mocker.Mock()
-    # Simulating two job items
     job_elements_list = [job_element_mock, job_element_mock]
-
-    # Return the container mock, which itself returns the job elements list
-    container_mock.find_elements.return_value = job_elements_list
-    mocker.patch.object(job_manager.driver, 'find_elements',
-                        return_value=[container_mock])
+    
+    mocker.patch.object(job_manager, 'get_jobs_from_page', return_value=job_elements_list)
+    
+    job = Job(
+        title="Title",
+        company="Company",
+        location="Location",
+        apply_method="",
+        link="Link"
+    )
 
     # Mock the extract_job_information_from_tile method to return sample job info
-    mocker.patch.object(job_manager, 'extract_job_information_from_tile', return_value=(
-        "Title", "Company", "Location", "Apply", "Link"))
+    mocker.patch.object(job_manager, 'job_tile_to_job', return_value=job)
 
     # Mock other methods like is_blacklisted, is_already_applied_to_job, and is_already_applied_to_company
     mocker.patch.object(job_manager, 'is_blacklisted', return_value=False)
@@ -153,16 +158,28 @@ def test_apply_jobs_with_jobs(mocker, job_manager):
     mocker.patch.object(Path, 'exists', return_value=True)
 
     # Mock the open function to prevent actual file writing
-    mock_open = mocker.mock_open()
+    failed_mock_data = [{
+        "company": "TestCompany",
+        "job_title": "Test Data Engineer",
+        "link": "https://www.example.com/jobs/view/1234567890/",
+        "job_recruiter": "",
+        "job_location": "Anywhere (Remote)",
+        "pdf_path": "file:///mocked/path/to/pdf"
+    }]
+
+    # Serialize the dictionary to a JSON string
+    json_read_data = json.dumps(failed_mock_data)
+
+    mock_open = mocker.mock_open(read_data=json_read_data)
     mocker.patch('builtins.open', mock_open)
 
     # Run the apply_jobs method
     job_manager.apply_jobs()
 
     # Assertions
-    assert job_manager.driver.find_elements.call_count == 1
+    assert job_manager.get_jobs_from_page.call_count == 1
     # Called for each job element
-    assert job_manager.extract_job_information_from_tile.call_count == 2
+    assert job_manager.job_tile_to_job.call_count == 2
     # Called for each job element
     assert job_manager.easy_applier_component.job_apply.call_count == 2
     mock_open.assert_called()  # Ensure that the open function was called
