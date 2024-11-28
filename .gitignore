@@ -165,4 +165,3 @@ job_applications/
 
 # Yamls with secrets
 /data_folder/secrets.yaml
-
